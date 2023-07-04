@@ -1,0 +1,70 @@
+# Step 1: Adapter trimming with Cutadapt
+cutadapt -f fastq -a GGAGTTCAGACGTGTGCTCTTCCGATCT --discard-untrimmed --minimum-length=35 -o trimmed.fastq raw.fastq
+
+# Step 2: Alignment using Bowtie
+bowtie2 -x /path/to/index -U trimmed.fastq -S aligned.sam
+
+# Step 3: Convert SAM file to BAM
+samtools view -bS aligned.sam > aligned.bam
+
+# Step 4: Convert BAM to BED
+bamtobed -i aligned.bam > aligned.bed
+
+# Step 5: Merging BED file
+bedtools merge -i aligned.bed -c 4,5,6 -o distinct | perl -pe 's/,\S+//g' > merged.bed
+
+# Step 6: Get FASTA from merged BED
+bedtools getfasta -fi ../../rn6.fa -bed merged.bed -fo merged.fasta
+
+# Step 7: Filter FASTA with bioawk
+bioawk -c fastx '(length($seq) ==43){ print ">"$name"\n"$seq }' merged.fasta > all.sb.fasta
+
+# Step 8: Filter FASTA for starting with 'TA'
+grep '^TA' -B 1 --no-group-separator all.sb.fasta > final.fa
+
+# Step 9: Formatting the BED
+cat TA.bed | tr ':\-_' '\t'  | grep "chr" | tr -d ">"
+
+# Step 10: Calculating intergenic regions with Python
+import pandas as pd
+
+def read_gtf_file(gtf_file):
+    # Read GTF file into a pandas DataFrame
+    columns = ['seqname', 'source', 'feature', 'start', 'end', 'score', 'strand', 'frame', 'attribute']
+    df = pd.read_csv(gtf_file, comment='#', sep='\t', header=None, names=columns)
+    
+    # Filter for protein-coding genes and non-coding RNAs
+    features = ['protein_coding', 'lncRNA', 'miRNA', 'tRNA']
+    df = df[(df['feature'] == 'gene') & df['attribute'].str.contains('|'.join(features))]
+    
+    # Extract chromosome, start, end, and strand columns
+    gene_coordinates = df[['seqname', 'start', 'end', 'strand']].sort_values(['seqname', 'start']).reset_index(drop=True)
+    
+    return gene_coordinates
+
+def calculate_intergenic_regions(gene_coordinates):
+    intergenic_regions = []
+    
+    for _, group in gene_coordinates.groupby('seqname'):
+        prev_end = 0
+        for _, row in group.iterrows():
+            if prev_end + 1 < row['start']:
+                intergenic_regions.append({'seqname': row['seqname'], 'start': prev_end + 1, 'end': row['start'] - 1})
+            prev_end = row['end']
+    
+    return pd.DataFrame(intergenic_regions)
+
+def main():
+    gtf_file = "gencode.v19.annotation.gtf"
+    gene_coordinates = read_gtf_file(gtf_file)
+    intergenic_regions = calculate_intergenic_regions(gene_coordinates)
+    
+    # Save intergenic regions as a BED file
+    output_bed_file = "intergenic_regions.bed"
+    intergenic_regions.to_csv(output_bed_file, sep='\t', header=False, index=False)
+    
+    print(f"Intergenic regions saved to {output_bed_file}")
+
+if __name__ == "__main__":
+    main()
+``
