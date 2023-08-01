@@ -14,7 +14,7 @@ bamtobed -i aligned.bam > aligned.bed
 bedtools merge -i aligned.bed -c 4,5,6 -o distinct | perl -pe 's/,\S+//g' > merged.bed
 
 # Step 6: Get FASTA from merged BED
-bedtools getfasta -fi ../../rn6.fa -bed merged.bed -fo merged.fasta
+bedtools getfasta -fi genome.fa -bed merged.bed -fo merged.fasta
 
 # Step 7: Filter FASTA with bioawk
 bioawk -c fastx '(length($seq) ==43){ print ">"$name"\n"$seq }' merged.fasta > all.sb.fasta
